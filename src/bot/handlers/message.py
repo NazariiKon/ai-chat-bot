@@ -39,7 +39,6 @@ MEMORY_REMOVE_PATTERN = re.compile(r"\[MEMORY_REMOVE:\s*(.*?)\]", re.IGNORECASE)
 STYLE_UPDATE_PATTERN = re.compile(r"\[STYLE_UPDATE:\s*(.*?)\]", re.IGNORECASE)
 NAME_UPDATE_PATTERN = re.compile(r"\[NAME_UPDATE:\s*(.*?)\]", re.IGNORECASE)
 SKIP_PATTERN = re.compile(r"\[SKIP\]", re.IGNORECASE)
-QUESTION_TRIGGER_WORDS = re.compile(r"\b(чому|що|яка|який|які|хто|як|коли|де|навіщо|скільки)\b", re.IGNORECASE)
 
 
 def resolve_persona_target(response_text: str, participants, default_user_id: int) -> int:
@@ -61,12 +60,6 @@ def resolve_persona_target(response_text: str, participants, default_user_id: in
                 return participant.tg_id
 
     return default_user_id
-
-
-def looks_like_question(text: str) -> bool:
-    if not text:
-        return False
-    return bool(QUESTION_TRIGGER_WORDS.search(text)) or "?" in text
 
 
 def parse_ai_tags(response_text: str) -> dict:
@@ -167,8 +160,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else settings.SPONTANEOUS_RESPONSE_CHANCE
         )
         if random.random() < spontaneous_chance:
-            if not settings.SPONTANEOUS_ONLY_QUESTION or looks_like_question(text):
-                is_spontaneous = True
+            is_spontaneous = True
 
     notify_on_error = not is_spontaneous
 
