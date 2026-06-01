@@ -183,16 +183,26 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Send "typing" action
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-    # 4. GLOBAL Context Gathering
+    # 4. Extract reply-to context (the message user replied to)
+    reply_context = None
+    reply_msg = update.message.reply_to_message
+    if reply_msg and reply_msg.from_user and reply_msg.from_user.id != context.bot.id:
+        reply_text = reply_msg.text or reply_msg.caption or ""
+        if reply_text:
+            reply_author = reply_msg.from_user.first_name or "Користувач"
+            reply_username = reply_msg.from_user.username or "unknown"
+            reply_context = f"[Повідомлення, на яке відповідає користувач — від {reply_author} @{reply_username}]: {reply_text}"
+
+    # 5. GLOBAL Context Gathering
     history = await db_service.get_recent_messages(chat_id)
     participants = await db_service.get_chat_participants(chat_id)
     personas_context = build_personas_context(participants)
 
-    # 5. System Prompt Update
+    # 6. System Prompt Update
     bot_style = chat_settings.bot_persona if chat_settings and chat_settings.bot_persona else "Звичайна, дружня людина, частина компанії."
     display_name = bot_nickname or "Бот (ім'я ще не встановлено)"
     current_system_prompt = build_system_prompt(display_name, bot_style, personas_context)
-    messages = build_messages(history, current_system_prompt)
+    messages = build_messages(history, current_system_prompt, reply_context=reply_context)
 
     if ai_service is None:
         logging.error("AI service is not initialized, skipping message processing")

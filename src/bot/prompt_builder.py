@@ -96,12 +96,16 @@ def build_system_prompt(display_name: str, bot_style: str, personas_context: str
 def build_messages(
     history: List[Dict[str, str]],
     system_prompt: str,
+    reply_context: str | None = None,
 ) -> List[Dict[str, str]]:
     """Build the full message list for the AI model.
     
     History messages are passed as-is (full text) to give the model real
     conversation context. The system prompt already instructs the model
     to only respond to the last message.
+    
+    If reply_context is provided, it contains the text of the message
+    the user replied to (which may not be in the recent history).
     """
     messages = [{"role": "system", "content": system_prompt}]
 
@@ -124,6 +128,17 @@ def build_messages(
             + "\n".join(context_lines)
         )
         messages.append({"role": "system", "content": context_block})
+
+    # If the user replied to a specific message, inject it so the model sees it
+    if reply_context:
+        messages.append({
+            "role": "system",
+            "content": (
+                "Користувач відповідає (reply) на наступне повідомлення. "
+                "Враховуй його при формуванні відповіді:\n"
+                + reply_context
+            ),
+        })
 
     # The actual message to respond to
     last_message = history[-1]
