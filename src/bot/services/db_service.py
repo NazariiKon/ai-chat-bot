@@ -158,10 +158,15 @@ class DatabaseService:
             await session.commit()
 
     async def get_recent_messages(self, chat_id: int, limit: int = 20) -> list[dict]:
-        """Retrieves recent messages for a specific chat to provide context to AI."""
+        """Retrieves recent messages for a specific chat to provide context to AI.
+        
+        For user messages, the content is prefixed with the sender's name and username
+        so the AI model knows who said what in group conversations.
+        """
         async with async_session() as session:
             stmt = (
                 select(Message)
+                .options(selectinload(Message.user))
                 .where(Message.chat_id == chat_id)
                 .order_by(Message.timestamp.desc())
                 .limit(limit)
@@ -170,9 +175,14 @@ class DatabaseService:
             messages = result.scalars().all()
             
             # Return in correct order (chronological)
-            return [
-                {"role": msg.role, "content": msg.content} 
-                for msg in reversed(messages)
-            ]
+            output = []
+            for msg in reversed(messages):
+                content = msg.content
+                if msg.role == "user" and msg.user:
+                    name = msg.user.first_name or "Користувач"
+                    username = msg.user.username or "unknown"
+                    content = f"[{name} @{username}]: {content}"
+                output.append({"role": msg.role, "content": content})
+            return output
 
 db_service = DatabaseService()

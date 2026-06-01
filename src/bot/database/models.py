@@ -42,4 +42,3 @@ class ChatSettings(Base):
     bot_nickname: Mapped[Optional[str]] = mapped_column(String(64))
     bot_persona: Mapped[Optional[str]] = mapped_column(Text)
     spontaneous_response_chance: Mapped[float] = mapped_column(Float, default=0.20)
-    spontaneous_response_chance: Mapped[float] = mapped_column(Float, default=0.20)

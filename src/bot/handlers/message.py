@@ -192,12 +192,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_style = chat_settings.bot_persona if chat_settings and chat_settings.bot_persona else "Звичайна, дружня людина, частина компанії."
     display_name = bot_nickname or "Бот (ім'я ще не встановлено)"
     current_system_prompt = build_system_prompt(display_name, bot_style, personas_context)
-    messages = build_messages(
-        history,
-        current_system_prompt,
-        max_items=settings.HISTORY_CONTEXT_MAX_ITEMS,
-        max_words=settings.HISTORY_CONTEXT_WORD_LIMIT,
-    )
+    messages = build_messages(history, current_system_prompt)
 
     if ai_service is None:
         logging.error("AI service is not initialized, skipping message processing")
