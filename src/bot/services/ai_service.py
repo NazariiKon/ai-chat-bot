@@ -99,15 +99,15 @@ class AIServiceFactory:
         provider = settings.AI_PROVIDER.lower().strip()
 
         if provider == "auto":
-            groq_service = AIServiceFactory._try_initialize("groq", GroqAiService)
             gemini_service = AIServiceFactory._try_initialize("gemini", GeminiAiService)
+            groq_service = AIServiceFactory._try_initialize("groq", GroqAiService)
 
-            if groq_service and gemini_service:
-                return FallbackAiService(groq_service, gemini_service)
-            if groq_service:
-                return groq_service
+            if gemini_service and groq_service:
+                return FallbackAiService(gemini_service, groq_service)
             if gemini_service:
                 return gemini_service
+            if groq_service:
+                return groq_service
 
             raise RuntimeError(
                 "No AI provider is available. Install Groq or Gemini client and set API keys."

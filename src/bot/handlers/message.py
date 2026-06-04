@@ -186,7 +186,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_context = f"[Повідомлення, на яке відповідає користувач — від {reply_author} @{reply_username}]: {reply_text}"
 
     # 5. GLOBAL Context Gathering
-    history = await db_service.get_recent_messages(chat_id)
+    history = await db_service.get_recent_messages(chat_id, settings.HISTORY_CONTEXT_MAX_ITEMS)
     participants = await db_service.get_chat_participants(chat_id)
     personas_context = build_personas_context(participants)
 

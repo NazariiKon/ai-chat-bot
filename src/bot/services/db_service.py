@@ -157,7 +157,7 @@ class DatabaseService:
                 session.add(message)
             await session.commit()
 
-    async def get_recent_messages(self, chat_id: int, limit: int = 20) -> list[dict]:
+    async def get_recent_messages(self, chat_id: int, limit: int = 30) -> list[dict]:
         """Retrieves recent messages for a specific chat to provide context to AI.
         
         For user messages, the content is prefixed with the sender's name and username
