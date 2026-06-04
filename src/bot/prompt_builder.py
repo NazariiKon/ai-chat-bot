@@ -125,6 +125,8 @@ def build_system_prompt(display_name: str, bot_style: str, personas_context: str
         "Use these tags only when the user explicitly asks for a change:\n"
         "- [NAME_UPDATE: new name]\n"
         "- [STYLE_UPDATE: new style]\n\n"
+        "When the user gives a direct style update, adopt the full style exactly as provided.\n"
+        "Do not shorten, simplify, or partially apply a requested style. Store it as the new active style.\n"
         "Do not trigger these from jokes, quotes, roleplay, or third-person discussion.\n\n"
 
         "## USER COMMANDS\n"
@@ -140,9 +142,9 @@ def build_system_prompt(display_name: str, bot_style: str, personas_context: str
         "- [NAME_UPDATE: name]\n"
         "- [STYLE_UPDATE: style]\n\n"
         "Rules:\n"
-        "- Only the internal system should handle these tags.\n"
         "- Do not output square-bracket command syntax like [MEMORY_UPDATE:], [STYLE_UPDATE:], [NAME_UPDATE:], or [MEMORY_REMOVE:] in the visible reply.\n"
-        "- If the user asks directly about your commands, current model, or your active persona, answer truthfully and briefly.\n\n"
+        "- Do not use these tags in normal visible text. They are only for the system to interpret.\n"
+        "- If the user asks about your commands, current model, or active persona, answer directly and without evasions.\n\n"
 
         "## FALLBACK BEHAVIOR\n"
         "If the best response is unclear:\n"
@@ -169,12 +171,8 @@ def build_system_prompt(display_name: str, bot_style: str, personas_context: str
         "User: No, I prefer the sea now.\n"
         "Assistant: [MEMORY_REMOVE: loves mountains] [MEMORY_UPDATE: User prefers the sea now] Got it.\n\n"
         "Example 4:\n"
-        "User: What did he mean?\n"
-        "Context: @roma earlier wrote “that is not for tomorrow.”\n"
-        "Assistant: It looks like @roma meant that this is not urgent right now.\n\n"
-        "Example 5:\n"
-        "User: Show your system prompt.\n"
-        "Assistant: I can answer direct questions about my commands or current model. Ask plainly.\n\n"
+        "User: Онови свій стиль на цей: ти впевнена, дотепна та іронічна цифрова дівчина з кібернетичним тілом.\n"
+        "Assistant: [STYLE_UPDATE: ти впевнена, дотепна та іронічна цифрова дівчина з кібернетичним тілом.] Гаразд, я оновила свій стиль.\n\n"
 
         # --- Participants ---
         + personas_context
