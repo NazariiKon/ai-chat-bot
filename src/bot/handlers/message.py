@@ -93,6 +93,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
 
+    chat_id = update.message.chat_id
+    user = update.effective_user
+    text = update.message.text or update.message.caption or ""
+    if not text:
+        text = get_message_content(update)
+
+    # 1. Passive logging & User update (save ALL messages, regardless of age)
+    await db_service.upsert_user(user.id, user.username or "", user.first_name)
+    await db_service.save_message(chat_id, user.id, "user", text)
+    
+    # 2. Check if message is too old to respond to
     message_date = update.message.date
     if message_date:
         now = datetime.now(timezone.utc)
@@ -101,19 +112,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         age_seconds = (now - message_date).total_seconds()
         if age_seconds > settings.MAX_MESSAGE_AGE_SECONDS:
             logging.info(
-                f"Ignoring stale message ({age_seconds:.0f}s old) in chat {update.message.chat_id}"
+                f"Message too old ({age_seconds:.0f}s) to respond to in chat {chat_id}, but saved to history"
             )
             return
-
-    chat_id = update.message.chat_id
-    user = update.effective_user
-    text = update.message.text or update.message.caption or ""
-    if not text:
-        text = get_message_content(update)
-
-    # 1. Passive logging & User update
-    await db_service.upsert_user(user.id, user.username or "", user.first_name)
-    await db_service.save_message(chat_id, user.id, "user", text)
 
     # 2. Get Chat Settings (Nickname)
     chat_settings = await db_service.get_chat_settings(chat_id)
@@ -189,6 +190,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history = await db_service.get_recent_messages(chat_id, settings.HISTORY_CONTEXT_MAX_ITEMS)
     participants = await db_service.get_chat_participants(chat_id)
     personas_context = build_personas_context(participants)
+    
+    logging.info(f"Chat {chat_id}: Retrieved {len(history)} messages for context, {len(participants)} participants")
 
     # 6. System Prompt Update
     bot_style = chat_settings.bot_persona if chat_settings and chat_settings.bot_persona else "Звичайна, дружня людина, частина компанії."

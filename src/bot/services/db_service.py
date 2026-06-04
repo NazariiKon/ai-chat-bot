@@ -1,10 +1,13 @@
 import re
 from typing import List, Optional
+import logging
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from bot.database.models import User, Message, ChatSettings
 from bot.database.session import async_session
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class DatabaseService:
     async def get_user(self, tg_id: int) -> Optional[User]:
@@ -145,17 +148,22 @@ class DatabaseService:
 
     async def save_message(self, chat_id: int, user_id: int, role: str, content: str):
         """Saves a message to the database."""
-        async with async_session() as session:
-            async with session.begin():
-                message = Message(
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    role=role,
-                    content=content,
-                    timestamp=datetime.utcnow()
-                )
-                session.add(message)
-            await session.commit()
+        try:
+            async with async_session() as session:
+                async with session.begin():
+                    message = Message(
+                        chat_id=chat_id,
+                        user_id=user_id,
+                        role=role,
+                        content=content,
+                        timestamp=datetime.utcnow()
+                    )
+                    session.add(message)
+                await session.commit()
+            logger.debug(f"Saved message: chat={chat_id}, user={user_id}, role={role}, content_len={len(content)}")
+        except Exception as e:
+            logger.error(f"Failed to save message to database: {e}", exc_info=True)
+            raise
 
     async def get_recent_messages(self, chat_id: int, limit: int = 30) -> list[dict]:
         """Retrieves recent messages for a specific chat to provide context to AI.
@@ -174,6 +182,8 @@ class DatabaseService:
             result = await session.execute(stmt)
             messages = result.scalars().all()
             
+            logger.debug(f"Retrieved {len(messages)} messages for chat {chat_id} (limit={limit})")
+            
             # Return in correct order (chronological)
             output = []
             for msg in reversed(messages):
@@ -183,6 +193,8 @@ class DatabaseService:
                     username = msg.user.username or "unknown"
                     content = f"[{name} @{username}]: {content}"
                 output.append({"role": msg.role, "content": content})
+            
+            logger.debug(f"Built context with {len(output)} formatted messages")
             return output
 
 db_service = DatabaseService()

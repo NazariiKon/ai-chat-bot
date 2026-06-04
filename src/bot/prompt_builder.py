@@ -193,11 +193,17 @@ def build_messages(
     If reply_context is provided, it contains the text of the message
     the user replied to (which may not be in the recent history).
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     messages = [{"role": "system", "content": system_prompt}]
 
     if not history:
+        logger.warning("No history messages provided to build_messages")
         return messages
 
+    logger.info(f"build_messages: Processing {len(history)} history messages")
+    
     # All history messages except the last one are context.
     # We prepend a system note reminding the model these are context-only.
     if len(history) > 1:
@@ -213,6 +219,7 @@ def build_messages(
             "Here are recent chat messages (FOR CONTEXT ONLY, do not reply to them):\n"
             + "\n".join(context_lines)
         )
+        logger.debug(f"Context block has {len(context_lines)} messages")
         messages.append({"role": "system", "content": context_block})
 
     # If the user replied to a specific message, inject it so the model sees it
@@ -228,5 +235,6 @@ def build_messages(
 
     # The actual message to respond to
     last_message = history[-1]
+    logger.info(f"Last message role: {last_message['role']}, content length: {len(last_message['content'])}")
     messages.append({"role": last_message["role"], "content": last_message["content"]})
     return messages

@@ -15,8 +15,8 @@ class Settings:
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5")
     DATABASE_URL: str = os.getenv("DATABASE_URL") or "sqlite+aiosqlite:///bot.db"
     MAX_MESSAGE_AGE_SECONDS: int = int(os.getenv("MAX_MESSAGE_AGE_SECONDS", "60"))
-    HISTORY_CONTEXT_MAX_ITEMS: int = int(os.getenv("HISTORY_CONTEXT_MAX_ITEMS", "30"))
-    HISTORY_CONTEXT_WORD_LIMIT: int = int(os.getenv("HISTORY_CONTEXT_WORD_LIMIT", "30"))
+    HISTORY_CONTEXT_MAX_ITEMS: int = int(os.getenv("HISTORY_CONTEXT_MAX_ITEMS", "50"))
+    HISTORY_CONTEXT_WORD_LIMIT: int = int(os.getenv("HISTORY_CONTEXT_WORD_LIMIT", "5000"))
     SPONTANEOUS_RESPONSE_CHANCE: float = float(os.getenv("SPONTANEOUS_RESPONSE_CHANCE", "0.20"))
     SPONTANEOUS_ONLY_QUESTION: bool = os.getenv("SPONTANEOUS_ONLY_QUESTION", "false").lower() in ("1", "true", "yes")
 
