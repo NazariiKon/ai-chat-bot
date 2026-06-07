@@ -36,12 +36,107 @@ def get_message_content(update: Update) -> str:
 
 
 MEMORY_UPDATE_PATTERN = re.compile(r"\[MEMORY_UPDATE:\s*(.*?)\]", re.IGNORECASE)
-PERSONA_UPDATE_JSON_PATTERN = re.compile(r"\[PERSONA_UPDATE_JSON:\s*(\{[\s\S]*?\})\]", re.IGNORECASE)
-BOT_PERSONA_UPDATE_JSON_PATTERN = re.compile(r"\[BOT_PERSONA_UPDATE_JSON:\s*(\{[\s\S]*?\})\]", re.IGNORECASE)
+PERSONA_UPDATE_JSON_PATTERN = re.compile(r"\[PERSONA_UPDATE_JSON:\s*", re.IGNORECASE)
+BOT_PERSONA_UPDATE_JSON_PATTERN = re.compile(r"\[BOT_PERSONA_UPDATE_JSON:\s*", re.IGNORECASE)
 MEMORY_REMOVE_PATTERN = re.compile(r"\[MEMORY_REMOVE:\s*(.*?)\]", re.IGNORECASE)
 STYLE_UPDATE_PATTERN = re.compile(r"\[STYLE_UPDATE:\s*(.*?)\]", re.IGNORECASE)
 NAME_UPDATE_PATTERN = re.compile(r"\[NAME_UPDATE:\s*(.*?)\]", re.IGNORECASE)
 SKIP_PATTERN = re.compile(r"\[SKIP\]", re.IGNORECASE)
+
+
+def extract_json_object(text: str, start_index: int) -> str | None:
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start_index, len(text)):
+        ch = text[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start_index: idx + 1]
+    return None
+
+
+def find_tagged_json_objects(text: str, tag: str) -> list[str]:
+    tag_prefix = f"[{tag}:"
+    results = []
+    cursor = 0
+
+    while True:
+        tag_start = text.lower().find(tag_prefix.lower(), cursor)
+        if tag_start == -1:
+            break
+
+        brace_start = text.find("{", tag_start + len(tag_prefix))
+        if brace_start == -1:
+            cursor = tag_start + len(tag_prefix)
+            continue
+
+        obj = extract_json_object(text, brace_start)
+        if not obj:
+            cursor = tag_start + len(tag_prefix)
+            continue
+
+        results.append(obj)
+        cursor = brace_start + len(obj)
+
+    return results
+
+
+def extract_loose_json_object(text: str) -> str | None:
+    open_idx = text.find("{")
+    while open_idx != -1:
+        json_text = extract_json_object(text, open_idx)
+        if json_text:
+            return json_text
+        open_idx = text.find("{", open_idx + 1)
+    return None
+
+
+def remove_tagged_json_blocks(text: str, tag: str) -> str:
+    tag_prefix = f"[{tag}:"
+    result = []
+    cursor = 0
+
+    while True:
+        tag_start = text.lower().find(tag_prefix.lower(), cursor)
+        if tag_start == -1:
+            result.append(text[cursor:])
+            break
+
+        result.append(text[cursor:tag_start])
+        brace_start = text.find("{", tag_start + len(tag_prefix))
+        if brace_start == -1:
+            cursor = tag_start + len(tag_prefix)
+            continue
+
+        obj = extract_json_object(text, brace_start)
+        if not obj:
+            cursor = brace_start + 1
+            continue
+
+        cursor = brace_start + len(obj)
+
+        # remove closing bracket if present after object
+        if cursor < len(text) and text[cursor] == "]":
+            cursor += 1
+
+    return "".join(result)
 
 
 def resolve_persona_target(response_text: str, participants, default_user_id: int) -> int:
@@ -77,8 +172,8 @@ def parse_ai_tags(response_text: str) -> dict:
 
 def clean_ai_response(response_text: str) -> str:
     clean_reply = MEMORY_UPDATE_PATTERN.sub("", response_text)
-    clean_reply = PERSONA_UPDATE_JSON_PATTERN.sub("", clean_reply)
-    clean_reply = BOT_PERSONA_UPDATE_JSON_PATTERN.sub("", clean_reply)
+    clean_reply = remove_tagged_json_blocks(clean_reply, "PERSONA_UPDATE_JSON")
+    clean_reply = remove_tagged_json_blocks(clean_reply, "BOT_PERSONA_UPDATE_JSON")
     clean_reply = MEMORY_REMOVE_PATTERN.sub("", clean_reply)
     clean_reply = STYLE_UPDATE_PATTERN.sub("", clean_reply)
     clean_reply = NAME_UPDATE_PATTERN.sub("", clean_reply)
@@ -86,12 +181,72 @@ def clean_ai_response(response_text: str) -> str:
 
     # Remove any leftover lines containing technical tags.
     clean_reply = re.sub(
-        r"(?mi)^.*(MEMORY_UPDATE|MEMORY_REMOVE|STYLE_UPDATE|NAME_UPDATE|SKIP).*$",
+        r"(?mi)^.*(MEMORY_UPDATE|MEMORY_REMOVE|STYLE_UPDATE|NAME_UPDATE|PERSONA_UPDATE_JSON|BOT_PERSONA_UPDATE_JSON|SKIP).*$",
         "",
         clean_reply,
     )
     clean_reply = re.sub(r"\n{3,}", "\n\n", clean_reply).strip()
     return clean_reply
+
+
+def looks_like_persona_patch(patch: dict) -> bool:
+    if not isinstance(patch, dict):
+        return False
+    persona_keys = {
+        "traits",
+        "alias",
+        "archetype",
+        "notes",
+        "expertise_cluster",
+        "behavioral_patterns",
+        "loyalty_metrics",
+        "vulnerabilities",
+        "user_id",
+        "user*id",
+        "primary",
+        "secondary",
+    }
+    return bool(set(patch.keys()) & persona_keys)
+
+
+def normalize_persona_patch(patch: dict) -> dict:
+    def normalize_string(value: str) -> str:
+        return value.replace("\n", " ").strip()
+
+    def normalize_keyword(value: str) -> str:
+        return normalize_string(value).replace(" ", "_").lower()
+
+    def normalize_object(value):
+        if isinstance(value, dict):
+            return {k: normalize_object(v) for k, v in value.items() if normalize_object(v) is not None}
+        if isinstance(value, list):
+            normalized_list = [normalize_object(v) for v in value]
+            return [v for v in normalized_list if v is not None]
+        if isinstance(value, str):
+            return normalize_string(value)
+        return value
+
+    normalized = normalize_object(patch)
+    if not isinstance(normalized, dict):
+        return patch
+
+    if "traits" in normalized and isinstance(normalized["traits"], list):
+        normalized["traits"] = [normalize_keyword(item) for item in normalized["traits"] if isinstance(item, str)]
+
+    if "expertise_cluster" in normalized and isinstance(normalized["expertise_cluster"], dict):
+        for section in ("primary", "secondary"):
+            if section in normalized["expertise_cluster"] and isinstance(normalized["expertise_cluster"][section], list):
+                normalized["expertise_cluster"][section] = [
+                    normalize_keyword(item)
+                    for item in normalized["expertise_cluster"][section]
+                    if isinstance(item, str)
+                ]
+
+    return normalized
+
+
+
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handles incoming messages with custom nickname awareness and global context."""
@@ -107,7 +262,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1. Passive logging & User update (save ALL messages, regardless of age)
     await db_service.upsert_user(user.id, user.username or "", user.first_name)
     await db_service.save_message(chat_id, user.id, "user", text)
-    
+
+    # Direct JSON persona update from the user's message.
+    # If the user sends a raw JSON object as the entire message, apply it directly (fast path).
+    raw_user_json = extract_loose_json_object(text)
+    if raw_user_json:
+        try:
+            patch = json.loads(raw_user_json)
+            message_is_json_only = text.strip().startswith("{") and text.strip().endswith("}")
+            if looks_like_persona_patch(patch) and message_is_json_only:
+                normalized_patch = normalize_persona_patch(patch)
+                await db_service.update_persona_fields(user.id, normalized_patch)
+                logging.info(f"Applied direct user JSON persona patch for {user.id}: {normalized_patch}")
+                await update.message.reply_text("Персона оновлена.")
+                return
+        except Exception as e:
+            logging.debug(f"Raw user JSON persona patch parse failed: {e}")
+
     # 2. Check if message is too old to respond to
     message_date = update.message.date
     if message_date:
@@ -232,7 +403,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 1. Look for User Memory Updates
         persona_target_id = resolve_persona_target(response_text, participants, user.id)
         # First, look for structured JSON persona updates
-        json_matches = PERSONA_UPDATE_JSON_PATTERN.findall(response_text)
+        json_matches = find_tagged_json_objects(response_text, "PERSONA_UPDATE_JSON")
         for json_blob in json_matches:
             try:
                 import json as _json
@@ -242,40 +413,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 logging.warning(f"Failed to apply JSON persona patch: {e}")
 
-        # Then handle legacy MEMORY_UPDATE tags (try to parse as JSON, else convert via AI)
+        # Handle legacy MEMORY_UPDATE tags (try to parse as JSON, else save as notes)
         memory_pattern = r"\[MEMORY_UPDATE:\s*(.*?)\]"
         user_updates = re.findall(memory_pattern, response_text)
         for fact in user_updates:
-            fact = fact.strip()
+            fact = fact.replace("\\n", " ").replace("\n", " ").strip()
             if not fact:
                 continue
             # If it looks like JSON, parse and apply
             if fact.startswith("{") and fact.endswith("}"):
                 try:
-                    import json as _json
-                    patch = _json.loads(fact)
+                    patch = json.loads(fact)
                     await db_service.update_persona_fields(persona_target_id, patch)
                     logging.info(f"Applied JSON persona patch from MEMORY_UPDATE for user {persona_target_id}")
                     continue
                 except Exception:
                     pass
 
-            # Otherwise ask the AI to convert freeform text to a persona patch
-            try:
-                from bot.services.ai_service import parse_persona_patch
-                patch = await parse_persona_patch(fact)
-                if patch and isinstance(patch, dict):
-                    await db_service.update_persona_fields(persona_target_id, patch)
-                    logging.info(f"Applied parsed persona patch for user {persona_target_id}: {patch}")
-                else:
-                    await db_service.update_persona(persona_target_id, fact)
-                    logging.info(f"Saved freeform fact to notes for user {persona_target_id}")
-            except Exception as e:
-                logging.warning(f"Persona parse failed, saving as plain fact: {e}")
-                await db_service.update_persona(persona_target_id, fact)
+            # Plain text fact — save directly as a notes entry
+            await db_service.update_persona_fields(persona_target_id, {"notes": fact})
+            logging.info(f"Saved MEMORY_UPDATE fact to notes for user {persona_target_id}: {fact}")
 
         # 1.5 Look for bot persona JSON updates
-        bot_persona_matches = BOT_PERSONA_UPDATE_JSON_PATTERN.findall(response_text)
+        bot_persona_matches = find_tagged_json_objects(response_text, "BOT_PERSONA_UPDATE_JSON")
         for json_blob in bot_persona_matches:
             try:
                 import json as _json
@@ -284,6 +444,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 logging.info(f"Applied JSON bot persona patch in chat {chat_id}: {patch}")
             except Exception as e:
                 logging.warning(f"Failed to apply bot persona patch: {e}")
+
+        # If the model returned a raw JSON object without explicit tags, try to interpret it
+        # as a persona patch and store it for the target user.
+        if not json_matches and not user_updates:
+            raw_json = extract_loose_json_object(response_text)
+            if raw_json:
+                try:
+                    loose_patch = json.loads(raw_json)
+                    if looks_like_persona_patch(loose_patch):
+                        await db_service.update_persona_fields(persona_target_id, loose_patch)
+                        logging.info(
+                            f"Applied loose JSON persona patch for user {persona_target_id}: {loose_patch}"
+                        )
+                except Exception as e:
+                    logging.debug(f"Loose JSON persona patch parse failed: {e}")
 
         # 2. Look for User Memory Removal
         remove_pattern = r"\[MEMORY_REMOVE:\s*(.*?)\]"
@@ -316,7 +491,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if clean_reply:
             await db_service.save_message(chat_id, context.bot.id, "assistant", clean_reply)
-            await update.message.reply_text(clean_reply)
+            await update.message.reply_text(
+                clean_reply,
+                parse_mode="Markdown",
+                disable_web_page_preview=True,
+            )
             
     except Exception as e:
         logging.error(f"AI Error: {e}")

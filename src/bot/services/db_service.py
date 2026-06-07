@@ -12,6 +12,124 @@ from copy import deepcopy
 logger = logging.getLogger(__name__)
 
 class DatabaseService:
+    def _normalize_text(self, text: str) -> str:
+        """Normalize freeform persona text for consistent storage.
+
+        - Trim whitespace and surrounding quotes
+        - Collapse internal whitespace
+        - Lowercase
+        - Strip trailing punctuation
+        """
+        if not isinstance(text, str):
+            return text
+        s = text.strip()
+        s = s.strip('"\'')
+        s = re.sub(r"\s+", " ", s)
+        s = s.rstrip(" .,!;:")
+        return s.lower()
+
+    def _to_snake_case(self, text: str) -> str:
+        """Convert arbitrary text to a stable snake_case tag.
+
+        - Normalize whitespace and punctuation
+        - Replace non-alphanumeric with underscore
+        - Collapse multiple underscores
+        - Strip leading/trailing underscores
+        - Lowercase
+        """
+        if not isinstance(text, str):
+            return text
+        s = self._normalize_text(text)
+        # replace non alnum with underscore
+        s = re.sub(r"[^0-9a-z]+", "_", s)
+        s = re.sub(r"_+", "_", s)
+        s = s.strip("_")
+        return s
+
+    @staticmethod
+    def _clean_patch_values(value):
+        """Recursively remove None and blank-string values from a patch."""
+        if isinstance(value, dict):
+            cleaned = {}
+            for k, v in value.items():
+                cleaned_value = DatabaseService._clean_patch_values(v)
+                if cleaned_value is not None:
+                    cleaned[k] = cleaned_value
+            return cleaned
+        if isinstance(value, list):
+            cleaned_list = [DatabaseService._clean_patch_values(v) for v in value]
+            cleaned_list = [v for v in cleaned_list if v is not None]
+            return cleaned_list
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    def _deep_merge(self, a: dict, b: dict) -> dict:
+        """Recursively merge dict `b` into dict `a`.
+
+        - None values in `b` remove the key from the result.
+        - Lists support removal markers (strings prefixed with "-").
+        - Tag-like lists (traits, primary, secondary) are normalized to snake_case.
+        - String values are appended (not overwritten) to preserve existing notes.
+        """
+        result = deepcopy(a)
+        for k, v in b.items():
+            if v is None:
+                result.pop(k, None)
+                continue
+            if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+                result[k] = {} if not v else self._deep_merge(result[k], v)
+            elif k in result and isinstance(result[k], list) and isinstance(v, list):
+                if not v:
+                    result[k] = []
+                else:
+                    existing = list(result[k])
+                    remove_items = [item for item in v if isinstance(item, str) and item.strip().startswith("-")]
+                    add_items = [item for item in v if not (isinstance(item, str) and item.strip().startswith("-"))]
+
+                    if k in ("traits", "primary", "secondary"):
+                        existing = [self._to_snake_case(self._normalize_text(e)) if isinstance(e, str) else e for e in existing]
+                        remove_snakes = [self._to_snake_case(self._normalize_text(item[1:])) for item in remove_items]
+                        if remove_snakes:
+                            existing = [item for item in existing if self._to_snake_case(self._normalize_text(item)) not in remove_snakes]
+                        for item in add_items:
+                            if isinstance(item, str):
+                                snake = self._to_snake_case(self._normalize_text(item))
+                                if snake and not any(self._to_snake_case(self._normalize_text(e)) == snake for e in existing):
+                                    existing.append(snake)
+                            else:
+                                if item not in existing:
+                                    existing.append(item)
+                    else:
+                        remove_norms = [self._normalize_text(item[1:]) for item in remove_items]
+                        if remove_norms:
+                            existing = [item for item in existing if self._normalize_text(item) not in remove_norms]
+                        for item in add_items:
+                            if isinstance(item, str):
+                                norm = self._normalize_text(item)
+                                if not any(self._normalize_text(e) == norm for e in existing):
+                                    existing.append(item)
+                            else:
+                                if item not in existing:
+                                    existing.append(item)
+                    result[k] = existing
+            else:
+                if isinstance(result.get(k), str) and isinstance(v, str):
+                    existing_str = result.get(k) or ""
+                    incoming_str = v or ""
+                    incoming_norm = self._normalize_text(incoming_str)
+                    existing_norm = self._normalize_text(existing_str)
+                    if incoming_norm and incoming_norm not in existing_norm:
+                        combined = (existing_str + "\n" + incoming_norm).strip()
+                        result[k] = combined
+                    else:
+                        result[k] = existing_str
+                else:
+                    result[k] = v
+        return result
+
     async def get_user(self, tg_id: int) -> Optional[User]:
         """Returns a User object by its telegram ID."""
         async with async_session() as session:
@@ -100,16 +218,11 @@ class DatabaseService:
                     except Exception:
                         current = {"notes": settings.bot_persona or ""}
 
-                    def deep_merge(a: dict, b: dict):
-                        result = deepcopy(a)
-                        for k, v in b.items():
-                            if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-                                result[k] = deep_merge(result[k], v)
-                            else:
-                                result[k] = v
-                        return result
+                    patch = self._clean_patch_values(patch)
+                    if not patch and patch != {}:
+                        return
 
-                    merged = deep_merge(current, patch)
+                    merged = self._deep_merge(current, patch)
                     settings.bot_persona = json.dumps(merged, ensure_ascii=False)
             await session.commit()
 
@@ -153,14 +266,18 @@ class DatabaseService:
         clean_fact = new_fact.strip()
         if not clean_fact:
             return
+        normalized = self._normalize_text(clean_fact)
+        if not normalized:
+            return
 
         async with async_session() as session:
             async with session.begin():
                 user = await session.get(User, tg_id)
                 if user:
                     current_persona = user.persona or ""
-                    if clean_fact not in current_persona:
-                        user.persona = f"{current_persona}\n- {clean_fact}".strip()
+                    current_norm = self._normalize_text(current_persona) if current_persona else ""
+                    if normalized not in current_norm:
+                        user.persona = f"{current_persona}\n- {normalized}".strip()
             await session.commit()
 
     # --- JSON persona helpers ---
@@ -201,16 +318,11 @@ class DatabaseService:
                 except Exception:
                     current = {"notes": user.persona or ""}
 
-                def deep_merge(a: dict, b: dict):
-                    result = deepcopy(a)
-                    for k, v in b.items():
-                        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-                            result[k] = deep_merge(result[k], v)
-                        else:
-                            result[k] = v
-                    return result
+                patch = self._clean_patch_values(patch)
+                if not patch and patch != {}:
+                    return
 
-                merged = deep_merge(current, patch)
+                merged = self._deep_merge(current, patch)
                 user.persona = json.dumps(merged, ensure_ascii=False)
             await session.commit()
 
