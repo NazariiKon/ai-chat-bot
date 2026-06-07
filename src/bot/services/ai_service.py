@@ -132,3 +132,51 @@ try:
 except Exception as e:
     logging.error(f"Failed to initialize AI service: {e}")
     ai_service = None
+
+
+async def parse_persona_patch(raw_text: str) -> dict:
+    """Ask the AI to convert arbitrary text into a persona JSON patch.
+
+    Returns a dict if parsing succeeds, otherwise returns {"notes": raw_text}.
+    """
+    import re, json
+    if not ai_service:
+        return {"notes": raw_text}
+
+    system = (
+        "You will receive a short piece of text that contains suggested updates "
+        "for a user's persona. Output ONLY a single valid JSON object (no extra text).\n"
+        "Map freeform content into these fields when possible:\n"
+        "- alias (string)\n"
+        "- archetype (string)\n"
+        "- traits (array of short strings)\n"
+        "- expertise_cluster: { primary: [...], secondary: [...] }\n"
+        "- behavioral_patterns (object)\n"
+        "- loyalty_metrics (object)\n"
+        "- vulnerabilities (string)\n"
+        "- notes (string)\n"
+        "If you cannot map content to any of the above, put it into `notes`.\n"
+        "Return only valid JSON."
+    )
+
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": raw_text},
+    ]
+
+    try:
+        resp = await ai_service.get_response(messages)
+        # Try direct JSON parse
+        try:
+            return json.loads(resp)
+        except Exception:
+            # Extract first {...} block
+            m = re.search(r"\{[\s\S]*\}", resp)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except Exception:
+                    return {"notes": raw_text}
+            return {"notes": raw_text}
+    except Exception:
+        return {"notes": raw_text}

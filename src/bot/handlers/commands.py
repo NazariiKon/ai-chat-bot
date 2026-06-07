@@ -1,3 +1,4 @@
+import json
 from telegram import Update
 from telegram.ext import ContextTypes
 from bot.config import settings
@@ -91,11 +92,16 @@ async def bot_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     nickname = settings.bot_nickname or "Не встановлено"
-    persona = settings.bot_persona or "Стандартна"
+    persona_text = settings.bot_persona or "Стандартна"
+    try:
+        persona_obj = json.loads(settings.bot_persona)
+        persona_text = json.dumps(persona_obj, ensure_ascii=False, indent=2)
+    except Exception:
+        persona_text = settings.bot_persona or "Стандартна"
     
     report = (
         f"<b>🤖 Інформація про бота в цьому чаті:</b>\n\n"
         f"<b>Нікнейм:</b> {nickname}\n"
-        f"<b>Персона/Стиль:</b>\n<code>{persona}</code>"
+        f"<b>Персона/Стиль:</b>\n<code>{persona_text}</code>"
     )
     await update.message.reply_html(report)

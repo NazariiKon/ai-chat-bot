@@ -6,6 +6,8 @@ from sqlalchemy.orm import selectinload
 from bot.database.models import User, Message, ChatSettings
 from bot.database.session import async_session
 from datetime import datetime
+import json
+from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 
@@ -79,18 +81,49 @@ class DatabaseService:
                     settings.bot_persona = persona
             await session.commit()
 
-    async def update_bot_persona(self, chat_id: int, style_info: str):
-        """Sets/Overrides the bot's style in the chat."""
+    async def update_chat_bot_persona_fields(self, chat_id: int, patch: dict):
+        """Recursively merge `patch` into the bot's persona JSON."""
+        if not isinstance(patch, dict):
+            return
+
         async with async_session() as session:
             async with session.begin():
                 settings = await session.get(ChatSettings, chat_id)
                 if not settings:
-                    settings = ChatSettings(chat_id=chat_id, bot_persona=style_info)
+                    settings = ChatSettings(chat_id=chat_id, bot_persona=json.dumps(patch, ensure_ascii=False))
                     session.add(settings)
                 else:
-                    # Overwrite style instead of appending to avoid role duplication
-                    settings.bot_persona = style_info.strip()
+                    try:
+                        current = json.loads(settings.bot_persona) if settings.bot_persona else {}
+                        if not isinstance(current, dict):
+                            current = {"notes": str(current)}
+                    except Exception:
+                        current = {"notes": settings.bot_persona or ""}
+
+                    def deep_merge(a: dict, b: dict):
+                        result = deepcopy(a)
+                        for k, v in b.items():
+                            if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+                                result[k] = deep_merge(result[k], v)
+                            else:
+                                result[k] = v
+                        return result
+
+                    merged = deep_merge(current, patch)
+                    settings.bot_persona = json.dumps(merged, ensure_ascii=False)
             await session.commit()
+
+    async def update_bot_persona(self, chat_id: int, style_info: str):
+        """Sets/Overrides the bot's style in the chat."""
+        if not style_info:
+            return
+
+        try:
+            patch = json.loads(style_info)
+        except Exception:
+            patch = {"notes": style_info.strip()}
+
+        await self.update_chat_bot_persona_fields(chat_id, patch)
 
     async def clear_persona(self, tg_id: int):
         """Resets the user's persona."""
@@ -128,6 +161,78 @@ class DatabaseService:
                     current_persona = user.persona or ""
                     if clean_fact not in current_persona:
                         user.persona = f"{current_persona}\n- {clean_fact}".strip()
+            await session.commit()
+
+    # --- JSON persona helpers ---
+    async def get_persona(self, tg_id: int) -> dict:
+        """Return persona as a dict. If stored persona is plain text, wrap into {'notes': text}."""
+        async with async_session() as session:
+            user = await session.get(User, tg_id)
+            if not user or not user.persona:
+                return {}
+            try:
+                return json.loads(user.persona)
+            except Exception:
+                return {"notes": user.persona}
+
+    async def set_persona(self, tg_id: int, persona_obj: dict):
+        """Store persona as JSON string."""
+        async with async_session() as session:
+            async with session.begin():
+                user = await session.get(User, tg_id)
+                if user:
+                    user.persona = json.dumps(persona_obj, ensure_ascii=False)
+            await session.commit()
+
+    async def update_persona_fields(self, tg_id: int, patch: dict):
+        """Recursively merge `patch` into existing persona dict and save."""
+        if not isinstance(patch, dict):
+            return
+
+        async with async_session() as session:
+            async with session.begin():
+                user = await session.get(User, tg_id)
+                if not user:
+                    return
+                try:
+                    current = json.loads(user.persona) if user.persona else {}
+                    if not isinstance(current, dict):
+                        current = {"notes": str(current)}
+                except Exception:
+                    current = {"notes": user.persona or ""}
+
+                def deep_merge(a: dict, b: dict):
+                    result = deepcopy(a)
+                    for k, v in b.items():
+                        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+                            result[k] = deep_merge(result[k], v)
+                        else:
+                            result[k] = v
+                    return result
+
+                merged = deep_merge(current, patch)
+                user.persona = json.dumps(merged, ensure_ascii=False)
+            await session.commit()
+
+    async def get_chat_bot_persona(self, chat_id: int) -> dict:
+        async with async_session() as session:
+            settings = await session.get(ChatSettings, chat_id)
+            if not settings or not settings.bot_persona:
+                return {}
+            try:
+                return json.loads(settings.bot_persona)
+            except Exception:
+                return {"notes": settings.bot_persona}
+
+    async def set_chat_bot_persona(self, chat_id: int, persona_obj: dict):
+        async with async_session() as session:
+            async with session.begin():
+                settings = await session.get(ChatSettings, chat_id)
+                if not settings:
+                    settings = ChatSettings(chat_id=chat_id, bot_persona=json.dumps(persona_obj, ensure_ascii=False))
+                    session.add(settings)
+                else:
+                    settings.bot_persona = json.dumps(persona_obj, ensure_ascii=False)
             await session.commit()
 
     async def remove_from_persona(self, tg_id: int, keywords: str):

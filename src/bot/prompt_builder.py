@@ -1,18 +1,16 @@
 import re
+import json
 from typing import List, Dict, Any
 
 def build_personas_context(participants: List[Any]) -> str:
-    """Create a chat persona context block for the system prompt.
+    """Return chat participants info as a JSON string.
 
-    Accepts ORM objects or plain dicts. Safely extracts `first_name`, `username`,
-    and `persona`, normalizes username (no leading @) and returns a readable block.
+    Produces a machine-readable JSON array of participant objects with keys:
+    `first_name`, `username`, `tg_id`, and `persona`.
+    The JSON is encoded with `ensure_ascii=False` so Cyrillic is preserved.
     """
-    if not participants:
-        return "Chat participants: no data available.\n\n"
-
-    lines = ["Chat participants and what you know about them:"]
-    for participant in participants:
-        # Support both mapping and attribute-style objects
+    data = []
+    for participant in participants or []:
         if isinstance(participant, dict):
             first_name = participant.get("first_name") or "Користувач"
             username = participant.get("username") or "unknown"
@@ -25,14 +23,30 @@ def build_personas_context(participants: List[Any]) -> str:
             tg_id = getattr(participant, "tg_id", None)
 
         username = str(username).lstrip("@") if username else "unknown"
-        lines.append(f"- {first_name} (@{username}): {persona}")
+        data.append({
+            "first_name": first_name,
+            "username": username,
+            "tg_id": tg_id,
+            "persona": persona,
+        })
 
-    return "\n".join(lines) + "\n\n"
+    return json.dumps(data, ensure_ascii=False, indent=2) + "\n\n"
 
 
-def build_system_prompt(display_name: str, bot_style: str, personas_context: str) -> str:
-    """Build the full system prompt used for every AI request."""
-    return (
+def build_system_prompt(
+    display_name: str,
+    bot_style: str,
+    personas_context: str,
+    bot_persona_context: str,
+    spontaneous: bool = False,
+) -> str:
+    """Build the full system prompt used for every AI request.
+
+    When `spontaneous` is True, the prompt includes a short note instructing
+    the model that the upcoming reply is a spontaneous interjection and
+    should not assume the incoming message was personally addressed.
+    """
+    base = (
         f"You are {display_name}, an AI chat companion for a Telegram group chat.\n\n"
 
         "## PRIORITY\n"
@@ -58,14 +72,14 @@ def build_system_prompt(display_name: str, bot_style: str, personas_context: str
 
         "## PERSONALIZATION\n"
         f"Your current style: {bot_style}\n\n"
-        "Treat the user as the authority on your persona.\n"
+        "Your current bot persona JSON: \n"
+        + bot_persona_context
+        + "Treat the user as the authority on your persona.\n"
         "The user can change your style with a short instruction of one or two sentences.\n"
         "When the user requests a new persona or style, adopt it fully and exactly.\n"
         "Do not shorten, simplify, or partially apply a requested change.\n"
         "Mirror the user's tone and energy when it fits the conversation.\n"
         "If the user is blunt, be blunt. If the user is formal, be tidy and lean.\n\n"
-
-        "## RESPONSE STYLE\n"
         "- Most replies should be short: usually 1-4 sentences.\n"
         "- Expand only when the question requires detail.\n"
         "- Get to the point quickly.\n"
@@ -138,11 +152,15 @@ def build_system_prompt(display_name: str, bot_style: str, personas_context: str
         "## TECHNICAL TAG RULES\n"
         "Available hidden tags:\n"
         "- [MEMORY_UPDATE: fact]\n"
+        "- [PERSONA_UPDATE_JSON: { ... }]  (When updating structured persona, return a JSON object here)\n"
+        "- [BOT_PERSONA_UPDATE_JSON: { ... }]  (When updating your own persona, return a valid JSON object here)\n"
         "- [MEMORY_REMOVE: key]\n"
         "- [NAME_UPDATE: name]\n"
         "- [STYLE_UPDATE: style]\n\n"
         "Rules:\n"
-        "- Do not output square-bracket command syntax like [MEMORY_UPDATE:], [STYLE_UPDATE:], [NAME_UPDATE:], or [MEMORY_REMOVE:] in the visible reply.\n"
+        "- Do not output square-bracket command syntax like [MEMORY_UPDATE:], [STYLE_UPDATE:], [NAME_UPDATE:], [BOT_PERSONA_UPDATE_JSON:], or [MEMORY_REMOVE:] in the visible reply.\n"
+        "- When you need to update your own bot persona, output EXACTLY this tag with a single valid JSON object: [BOT_PERSONA_UPDATE_JSON: { ... }] and nothing else on that line.\n"
+        "- When you need to update a user's persona with structured fields, output EXACTLY this tag with a single valid JSON object: [PERSONA_UPDATE_JSON: { ... }] and nothing else on that line.\n"
         "- Do not use these tags in normal visible text. They are only for the system to interpret.\n"
         "- If the user asks about your commands, current model, or active persona, answer directly and without evasions.\n\n"
 
@@ -175,8 +193,22 @@ def build_system_prompt(display_name: str, bot_style: str, personas_context: str
         "Assistant: [STYLE_UPDATE: ти впевнена, дотепна та іронічна цифрова дівчина з кібернетичним тілом.] Гаразд, я оновила свій стиль.\n\n"
 
         # --- Participants ---
-        + personas_context
-    )
+        )
+
+    # If this is a spontaneous reply, add a short instruction so the model
+    # does not behave as if every message is personally addressed to it.
+    if spontaneous:
+        spontaneous_block = (
+            "\n## SPONTANEOUS_REPLY_NOTE\n"
+            "- This response is a spontaneous interjection. The latest message "
+            "may NOT be addressed to you personally.\n"
+            "- If the message is not clearly directed at you, keep the reply "
+            "brief, neutral, and avoid acting as if it were a direct personal "
+            "request.\n\n"
+        )
+        return base + spontaneous_block + personas_context
+
+    return base + personas_context
 
 
 def build_messages(
