@@ -1,23 +1,26 @@
 import json
+import json
 from telegram import Update
 from telegram.ext import ContextTypes
 from bot.config import settings
 from bot.services.db_service import db_service
 
 async def whoami_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Shows the user what the bot knows about them."""
+    """Shows the user what the bot knows about them in JSON format."""
     user = update.effective_user
     user_data = await db_service.get_user(user.id)
-    
-    if not user_data or not user_data.persona:
-        await update.message.reply_text("Я поки що нічого про тебе не знаю. Давай поспілкуємось! 😊")
-        return
+    persona_data = await db_service.get_persona(user.id)
 
-    report = f"<b>Ось що я про тебе знаю, {user.first_name}:</b>\n\n"
-    report += f"{user_data.persona}\n\n"
-    report += f"<i>Кількість повідомлень: {user_data.message_count}</i>"
-    
-    await update.message.reply_html(report)
+    payload = {
+        "tg_id": user.id,
+        "username": user.username or None,
+        "first_name": user.first_name,
+        "message_count": user_data.message_count if user_data else 0,
+        "persona": persona_data or {},
+    }
+
+    json_text = json.dumps(payload, ensure_ascii=False, indent=2)
+    await update.message.reply_text(f"```json\n{json_text}\n```", parse_mode="Markdown")
 
 
 async def set_response_chance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
