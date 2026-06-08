@@ -387,7 +387,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_persona_context,
         spontaneous=is_spontaneous,
     )
-    messages = build_messages(history, current_system_prompt, reply_context=reply_context)
+    messages = build_messages(history, current_system_prompt, reply_context=reply_context, spontaneous=is_spontaneous)
 
     if ai_service is None:
         logging.error("AI service is not initialized, skipping message processing")

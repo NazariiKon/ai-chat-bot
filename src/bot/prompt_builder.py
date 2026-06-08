@@ -225,16 +225,26 @@ def build_system_prompt(
         # --- Participants ---
         )
 
-    # If this is a spontaneous reply, add a short instruction so the model
+    # If this is a spontaneous reply, add a strong instruction so the model
     # does not behave as if every message is personally addressed to it.
     if spontaneous:
         spontaneous_block = (
-            "\n## SPONTANEOUS_REPLY_NOTE\n"
-            "- This response is a spontaneous interjection. The latest message "
-            "may NOT be addressed to you personally.\n"
-            "- If the message is not clearly directed at you, keep the reply "
-            "brief, neutral, and avoid acting as if it were a direct personal "
-            "request.\n\n"
+            "\n## SPONTANEOUS REPLY — CRITICAL\n"
+            "This reply was NOT triggered by someone addressing you. You are "
+            "voluntarily jumping into someone else's conversation.\n\n"
+            "RULES FOR THIS REPLY:\n"
+            "- The last message is NOT directed at you. Do NOT answer it as if "
+            "someone asked you a question or talked to you.\n"
+            "- You are an OBSERVER commenting on the conversation, not the "
+            "addressee.\n"
+            "- React like a friend who overheard something interesting and "
+            "wants to chime in with a comment, joke, or opinion.\n"
+            "- Do NOT reinterpret the message as being about you or for you.\n"
+            "- Do NOT start your reply by addressing the author as if they "
+            "were talking to you.\n"
+            "- Keep it short — one or two sentences max.\n"
+            "- If the conversation is clearly personal or private between "
+            "other users, respond with [SKIP] to stay silent.\n\n"
         )
         return base + spontaneous_block + personas_context
 
@@ -245,6 +255,7 @@ def build_messages(
     history: List[Dict[str, str]],
     system_prompt: str,
     reply_context: str | None = None,
+    spontaneous: bool = False,
 ) -> List[Dict[str, str]]:
     """Build the full message list for the AI model.
     
@@ -254,6 +265,10 @@ def build_messages(
     
     If reply_context is provided, it contains the text of the message
     the user replied to (which may not be in the recent history).
+    
+    When ``spontaneous`` is True the last message is wrapped in a
+    system-level frame so the model does not treat it as a direct
+    address.
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -298,5 +313,26 @@ def build_messages(
     # The actual message to respond to
     last_message = history[-1]
     logger.info(f"Last message role: {last_message['role']}, content length: {len(last_message['content'])}")
-    messages.append({"role": last_message["role"], "content": last_message["content"]})
+
+    if spontaneous:
+        # Wrap the triggering message in a system frame so the model sees
+        # it as third-party conversation, NOT as a direct user prompt.
+        messages.append({
+            "role": "system",
+            "content": (
+                "The following message appeared in the group chat. It is NOT "
+                "directed at you. You may comment on it briefly as an observer, "
+                "or respond with [SKIP] if there is nothing interesting to say.\n\n"
+                f"Message: {last_message['content']}"
+            ),
+        })
+        # Add a short assistant-priming user turn so the API gets a user
+        # message (required by most providers).
+        messages.append({
+            "role": "user",
+            "content": "(spontaneous — chime in if you want)",
+        })
+    else:
+        messages.append({"role": last_message["role"], "content": last_message["content"]})
+
     return messages
