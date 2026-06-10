@@ -342,12 +342,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     notify_on_error = not is_spontaneous
 
     if not (is_private or is_mention or is_nickname or is_spontaneous):
-        # Allow AI to process if it looks like the user is trying to name the bot
-        name_triggers = ["називай себе", "тебе звати", "твоє ім'я", "відтепер ти"]
-        if not bot_nickname and any(t in text.lower() for t in name_triggers):
-            pass 
-        else:
-            return
+        return
 
     # Send "typing" action
     await context.bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -491,11 +486,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if clean_reply:
             await db_service.save_message(chat_id, context.bot.id, "assistant", clean_reply)
-            await update.message.reply_text(
-                clean_reply,
-                parse_mode="Markdown",
-                disable_web_page_preview=True,
-            )
+            try:
+                await update.message.reply_text(
+                    clean_reply,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True,
+                )
+            except Exception as markdown_error:
+                logging.warning(f"Failed to send message with Markdown parsing: {markdown_error}")
+                await update.message.reply_text(
+                    clean_reply,
+                    parse_mode=None,
+                    disable_web_page_preview=True,
+                )
             
     except Exception as e:
         logging.error(f"AI Error: {e}")

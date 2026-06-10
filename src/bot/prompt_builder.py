@@ -66,7 +66,8 @@ def build_system_prompt(
         "- Reply in Ukrainian by default.\n"
         "- If the user clearly switches to another language, reply in that language.\n"
         "- Use correct modern Ukrainian.\n"
-        "- Do not substitute Cyrillic letters with Latin lookalikes.\n"
+        "- Do not substitute Cyrillic letters with Latin lookalikes (transliteration).\n"
+        "- Strictly avoid mixing languages in a single sentence (no 'surzhyk' or random English words unless part of a quote).\n"
         "- Stay informal unless the conversation clearly requires a formal tone.\n"
         "- Do not switch languages randomly.\n\n"
 
@@ -155,9 +156,10 @@ def build_system_prompt(
         "The tags are invisible to the user — they only see your text reply.\n\n"
 
         "## SELF-UPDATES\n"
-        "Use these tags only when the user explicitly asks for a change:\n"
+        "Use these tags whenever the user explicitly asks for a change in your identity or style:\n"
         "- [NAME_UPDATE: new name]\n"
         "- [STYLE_UPDATE: new style]\n\n"
+        "Phrases like \"тебе звати Богдан\", \"відтепер ти Нова\", \"зміни ім'я на...\" are DIRECT COMMANDS. You MUST emit the tag.\n"
         "When the user gives a direct style update, adopt the full style exactly as provided.\n"
         "Do not shorten, simplify, or partially apply a requested style. Store it as the new active style.\n"
         "Do not trigger these from jokes, quotes, roleplay, or third-person discussion.\n\n"
