@@ -108,3 +108,28 @@ async def bot_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Персона/Стиль:</b>\n<code>{persona_text}</code>"
     )
     await update.message.reply_html(report)
+
+async def reset_bot_settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Повністю видаляє всі налаштування та персону бота в цьому чаті."""
+    chat_id = update.effective_chat.id
+    from bot.database.models import ChatSettings
+    from bot.database.session import async_session
+    
+    async with async_session() as session:
+        async with session.begin():
+            settings = await session.get(ChatSettings, chat_id)
+            if settings:
+                await session.delete(settings)
+        await session.commit()
+    await update.message.reply_text("💥 Усі налаштування бота в цьому чаті видалено. Тепер я — 'Звичайна людина' за замовчуванням.")
+
+async def bot_debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показує сирий вміст поля bot_persona з бази даних."""
+    chat_id = update.effective_chat.id
+    settings = await db_service.get_chat_settings(chat_id)
+    if not settings:
+        await update.message.reply_text("Налаштування для цього чату відсутні.")
+        return
+    
+    raw_val = settings.bot_persona or "EMPTY"
+    await update.message.reply_text(f"RAW DATABASE PERSONA:\n`{raw_val}`", parse_mode="Markdown")

@@ -21,12 +21,13 @@ async def post_init(application: Application) -> None:
 def main() -> None:
     if not settings.BOT_TOKEN:
         raise ValueError("BOT_TOKEN is missing in .env")
-
     from bot.handlers.commands import (
         whoami_command,
         forget_me_command,
         bot_info_command,
         set_response_chance_command,
+        reset_bot_settings_command,
+        bot_debug_command,
     )
 
     # Build the application with post_init
@@ -41,6 +42,8 @@ def main() -> None:
     app.add_handler(CommandHandler("forget_me", forget_me_command))
     app.add_handler(CommandHandler("bot_info", bot_info_command))
     app.add_handler(CommandHandler("set_response_chance", set_response_chance_command))
+    app.add_handler(CommandHandler("reset_bot_settings", reset_bot_settings_command))
+    app.add_handler(CommandHandler("bot_debug", bot_debug_command))
     
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.ALL & ~filters.TEXT & ~filters.COMMAND, handle_message))

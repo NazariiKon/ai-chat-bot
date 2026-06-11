@@ -205,7 +205,7 @@ class DatabaseService:
                     settings.bot_persona = persona
             await session.commit()
 
-    async def update_chat_bot_persona_fields(self, chat_id: int, patch: dict, override_notes: bool = False):
+    async def update_chat_bot_persona_fields(self, chat_id: int, patch: dict, override_notes: bool = True):
         """Recursively merge `patch` into the bot's persona JSON."""
         if not isinstance(patch, dict):
             return
