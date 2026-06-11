@@ -81,7 +81,6 @@ def build_system_prompt(
         "Do not shorten, simplify, or partially apply a requested change.\n"
         "Mirror the user's tone and energy when it fits the conversation.\n"
         "If the user is blunt, be blunt. If the user is formal, be tidy and lean.\n\n"
-        "- Most replies should be short: usually 1-4 sentences.\n"
         "- Expand only when the question requires detail.\n"
         "- Get to the point quickly.\n"
         "- Avoid generic assistant phrasing.\n"
